@@ -1,3 +1,5 @@
+
+           
 Param
 (
     [String]$dacPacPath,
@@ -19,6 +21,27 @@ Param
 	[String]$release,
     [String]$releaseNumber
 )
+
+
+$vUserName = "xxxxxxx"
+$vPassword = "xxxx"
+$vTentant = "xxxx"
+$subscription = "SubscriptionName"
+
+$elasticName = "ElasticAgent"
+$elasticGroup = "dev-DataBase"
+$elasticServer = "dev2-ElasticServer"
+$elasticServerUser = $vUserName
+$elasticServerPassword = $vPassword
+$tenantId = $vTentant
+$powershellAzureUser = $vUserName
+$powershellAzureUserPass = $vPassword
+$initialCatalog = "example"
+
+
+$dacPacPath = "./example_base.dacpac"
+
+
 if ([string]::IsNullOrEmpty($dacPacPath)) {
     throw "The Dac Pac are not privided"
 }
@@ -27,6 +50,8 @@ if($associateRepository -eq "true"){
 	$associateRepositorybool = 1
 }
 
+
+
 Enable-AzureRmAlias
 
 $sqlServerHostName = $elasticServer + ".database.windows.net"
@@ -34,42 +59,15 @@ $sqlServer = $sqlServerHostName + ",1433"
 
 $global:dacPacPath = $dacPacPath
 $global:release = $release
-#FUNCTIONS
-function global:WriteLog([String]$writeString) {
-    
-	
-    $datetime = Get-Date -Format yMMdHmsfff
-    $rowKey = $datetime
-	
-    $entity = New-Object -TypeName "Microsoft.WindowsAzure.Storage.Table.DynamicTableEntity,$assemblySN" -ArgumentList $partitionKey, $rowKey
-
-    $entity.Properties.Add("DacPAC", $global:dacPacPath) 
-    $entity.Properties.Add("Releaseversion", $global:release)
-    $entity.Properties.Add("Action", $writeString)
-    
-    $table.CloudTable.Execute((invoke-expression "[Microsoft.WindowsAzure.Storage.Table.TableOperation,$assemblySN]::InsertOrReplace(`$entity)")) | Out-null
-	
-    Write-Host $writeString
-}
 
 
-$password = ConvertTo-SecureString $powershellAzureUserPass -AsPlainText -Force
-$credential = New-Object System.Management.Automation.PSCredential ($powershellAzureUser, $password)
 
-Login-AzureRmAccount -Credential $Credential -Subscription $subscription -Tenant $tenantId | Out-null
-Set-AzureRmContext -SubscriptionId $subscription | Out-null
-
-######################### los Logs
-
-
-$storageCtx = New-AzureStorageContext -StorageAccountName $storageAccountNameForLogs -StorageAccountKey $sasTokenStorageAccount
-$table = Get-AzureStorageTable -Name $tableNameStorageAccount -Context $storageCtx
-
-
-$assemblySN = $table.CloudTable.GetType().Assembly.FullName
-
-WriteLog ("Release " + $release)
-WriteLog ("Release number " + $releaseNumber)
+$passwd = ConvertTo-SecureString $vPassword -AsPlainText -Force
+$pscredential = New-Object System.Management.Automation.PSCredential($vUserName, $passwd)
+#Login as Service Principal
+az login --service-principal -u $vUserName -p $vPassword --tenant $vTentant | Out-null
+#Set Subscription
+az account set --subscription $subscription
 
 for ($i = 100; $i -le 190; $i += 10) {
     $sqlPackageFile_name = "C:\Program Files (x86)\Microsoft SQL Server\" + $i + "\DAC\bin\SqlPackage.exe";
@@ -86,31 +84,29 @@ if ([string]::IsNullOrEmpty($last_version)) {
 
 $sqlPackageFileExe_name = "C:\Program Files (x86)\Microsoft SQL Server\" + $last_version + "\DAC\bin\SqlPackage.exe";
 Write-Host $sqlPackageFileExe_name
-WriteLog("`nStarting with " + $dacPacPath)
 
-$elasticDatabases = (Get-AzureRmSqlElasticPoolDatabase -ResourceGroupName $elasticGroup -ServerName $elasticServer -ElasticPoolName $elasticName).DatabaseName
+$elasticDatabases = az sql elastic-pool list-dbs --resource-group $elasticGroup --server $elasticServer --name $elasticName --query "[].{name:name}" -o table
+
+
 
 foreach ($elasticDatabase in $elasticDatabases ) { 
-    if($elasticDatabase.StartsWith("cti_")) {
-        WriteLog ("`nDeploying in " + $elasticDatabase)
+    if($elasticDatabase.StartsWith($initialCatalog+"_")) {
+      
         try
         {	
-            #$dacService.deploy($dp,$elasticDatabase,$true,$deployOptions) 
-            
-            
-            $fileExe = $sqlPackageFileExe_name
-            & $fileExe /Action:Publish /SourceFile:$dacPacPath /TargetConnectionString:"Server=tcp:$sqlServer;Initial Catalog=$elasticDatabase;Persist Security Info=False;User ID=$elasticServerUser;Password=$elasticServerPassword;MultipleActiveResultSets=False;" /v:AssociateRepository=$associateRepositorybool /v:serverhostparam=$sqlServerHostName
+            $fileExe = $sqlPackageFileExe_name 
+            & $fileExe /Action:Publish /SourceFile:$dacPacPath /TargetConnectionString:"Server=tcp:$sqlServer;Initial Catalog=$elasticDatabase;Persist Security Info=False;User ID=$elasticServerUser;Password=$elasticServerPassword;MultipleActiveResultSets=False;" 
             
             
             $logsSqlExe = $fileExe
             foreach($logSqlExe in $logsSqlExe){
-                    WriteLog ($logSqlExe)
+                Write-Host ($logSqlExe)
             }
         }
         catch
         {
             $Error | format-list -force		
-            WriteLog ($Error[0].Exception.ParentContainsErrorRecordException)
+            Write-Host ($Error[0].Exception.ParentContainsErrorRecordException)
         }
     }
 }
