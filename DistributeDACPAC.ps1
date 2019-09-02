@@ -1,5 +1,3 @@
-
-           
 Param
 (
     [String]$dacPacPath,
