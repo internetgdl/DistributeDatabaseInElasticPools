@@ -1,6 +1,5 @@
 # Despliegue de DACPAC a Azure Elastic Pools
 
-[Sin categoría](http://eduardo.mx/category/sin-categoria/)
 
 Despliegue de DACPAC a Azure Elastic Pools.
 
